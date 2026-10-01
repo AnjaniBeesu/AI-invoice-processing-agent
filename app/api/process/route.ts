@@ -11,11 +11,8 @@ async function extractPdfText(bytes: Buffer) {
   const errors: string[] = []
   try {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    const document = await pdfjs.getDocument({
-      data: new Uint8Array(bytes),
-      useSystemFonts: true,
-      disableWorker: true,
-    }).promise
+    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true })
+    const document = await loadingTask.promise
     const pages: string[] = []
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
       const page = await document.getPage(pageNumber)
@@ -23,7 +20,6 @@ async function extractPdfText(bytes: Buffer) {
       pages.push(content.items.map((item: any) => ('str' in item ? item.str : '')).join(' '))
       page.cleanup()
     }
-    await document.destroy()
     const text = pages.join('\n').replace(/\s+/g, ' ').trim()
     if (text) return { text, parser: 'pdfjs-dist' }
     errors.push('PDF contains no extractable text (it may be scanned/image-only).')

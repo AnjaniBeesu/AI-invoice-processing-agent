@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { extractText } from 'unpdf'
 import { validateInvoice } from '../../../lib/invoice'
 
 export const runtime = 'nodejs'
@@ -10,21 +11,13 @@ const schema = `Return ONLY valid JSON with this shape: {"invoiceNumber":string|
 async function extractPdfText(bytes: Buffer) {
   const errors: string[] = []
   try {
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true })
-    const document = await loadingTask.promise
-    const pages: string[] = []
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
-      const page = await document.getPage(pageNumber)
-      const content = await page.getTextContent()
-      pages.push(content.items.map((item: any) => ('str' in item ? item.str : '')).join(' '))
-      page.cleanup()
-    }
-    const text = pages.join('\n').replace(/\s+/g, ' ').trim()
-    if (text) return { text, parser: 'pdfjs-dist' }
-    errors.push('PDF contains no extractable text (it may be scanned/image-only).')
+    const result = await extractText(new Uint8Array(bytes), { mergePages: true })
+    const text = Array.isArray(result.text) ? result.text.join('\n') : String(result.text || '')
+    const cleaned = text.replace(/\s+/g, ' ').trim()
+    if (cleaned) return { text: cleaned, parser: 'unpdf' }
+    errors.push('unpdf returned no extractable text.')
   } catch (error: any) {
-    errors.push(`pdfjs-dist: ${error?.message || 'PDF parsing failed'}`)
+    errors.push(`unpdf: ${error?.message || 'PDF parsing failed'}`)
   }
   try {
     const pdfParse = (await import('pdf-parse')).default
@@ -35,7 +28,7 @@ async function extractPdfText(bytes: Buffer) {
   } catch (error: any) {
     errors.push(`pdf-parse: ${error?.message || 'PDF parsing failed'}`)
   }
-  throw new Error(`Could not extract text from this PDF. It may be corrupted, password-protected, or scanned/image-only. Try exporting the invoice as a standard PDF. Details: ${errors.join(' | ')}`)
+  throw new Error(`Could not extract text from this PDF. It may be corrupted, password-protected, or scanned/image-only. Details: ${errors.join(' | ')}`)
 }
 
 async function notifySlack(invoice: any, validation: any) {

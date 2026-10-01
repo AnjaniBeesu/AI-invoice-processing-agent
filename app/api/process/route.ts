@@ -7,6 +7,40 @@ export const runtime = 'nodejs'
 
 const schema = `Return ONLY valid JSON with this shape: {"invoiceNumber":string|null,"vendor":string|null,"invoiceDate":string|null,"poNumber":string|null,"currency":string|null,"subtotal":number|null,"tax":number|null,"total":number|null,"lineItems":[{"description":string,"quantity":number,"unitPrice":number}],"confidence":number}. confidence must be 0-100.`
 
+async function notifySlack(invoice: any, validation: any) {
+  const token = process.env.SLACK_BOT_TOKEN
+  const channel = process.env.SLACK_CHANNEL_ID
+  if (!token || !channel) {
+    return { sent: false, configured: false, reason: 'Slack is not configured yet. Add SLACK_BOT_TOKEN and SLACK_CHANNEL_ID in Vercel.' }
+  }
+
+  const statusEmoji = validation.status === 'Approved' ? '✅' : '⚠️'
+  const message = [
+    `${statusEmoji} *Invoice ${invoice.invoiceNumber || 'Unknown'} — ${validation.status}*`,
+    `• Vendor: ${invoice.vendor || 'Unknown'}`,
+    `• PO: ${invoice.poNumber || 'Not found'}`,
+    `• Total: ${invoice.currency || ''} ${Number(invoice.total || 0).toLocaleString('en-IN')}`,
+    `• Validation score: ${validation.score}%`,
+    `• AI confidence: ${Number(invoice.confidence || 0)}%`,
+    validation.reasons?.length ? `• ${validation.reasons.join('\n• ')}` : '',
+  ].filter(Boolean).join('\n')
+
+  const response = await fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify({ channel, text: message }),
+  })
+
+  const result = await response.json()
+  if (!response.ok || !result.ok) {
+    return { sent: false, configured: true, reason: result.error || `Slack returned HTTP ${response.status}` }
+  }
+  return { sent: true, configured: true, ts: result.ts }
+}
+
 export async function POST(req: Request) {
   try {
     const form = await req.formData()
@@ -40,9 +74,10 @@ export async function POST(req: Request) {
     const raw = completion.choices[0]?.message?.content || '{}'
     const invoice = JSON.parse(raw)
     const validation = validateInvoice(invoice)
-    return NextResponse.json({ invoice, validation, model, extractedCharacters: text.length })
+    const slack = await notifySlack(invoice, validation)
+
+    return NextResponse.json({ invoice, validation, slack, model, extractedCharacters: text.length })
   } catch (error: any) {
-    console.error(error)
     return NextResponse.json({ error: error?.message || 'Invoice processing failed' }, { status: 500 })
   }
 }

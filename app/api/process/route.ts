@@ -5,18 +5,16 @@ import { validateInvoice } from '../../../lib/invoice'
 
 export const runtime = 'nodejs'
 
+const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID || 'C0C64MN2JPK'
 const schema = `Return ONLY valid JSON with this shape: {"invoiceNumber":string|null,"vendor":string|null,"invoiceDate":string|null,"poNumber":string|null,"currency":string|null,"subtotal":number|null,"tax":number|null,"total":number|null,"lineItems":[{"description":string,"quantity":number,"unitPrice":number}],"confidence":number}. confidence must be 0-100.`
 
 async function notifySlack(invoice: any, validation: any) {
   const token = process.env.SLACK_BOT_TOKEN
-  const channel = process.env.SLACK_CHANNEL_ID
-  if (!token || !channel) {
-    return { sent: false, configured: false, reason: 'Slack is not configured yet. Add SLACK_BOT_TOKEN and SLACK_CHANNEL_ID in Vercel.' }
-  }
+  if (!token) return { sent: false, configured: false, reason: 'SLACK_BOT_TOKEN is missing. Add it in Vercel Environment Variables.' }
 
-  const statusEmoji = validation.status === 'Approved' ? '✅' : '⚠️'
+  const statusEmoji = validation.status === 'Approved' ? 'white_check_mark' : 'warning'
   const message = [
-    `${statusEmoji} *Invoice ${invoice.invoiceNumber || 'Unknown'} — ${validation.status}*`,
+    `:${statusEmoji}: *Invoice ${invoice.invoiceNumber || 'Unknown'} — ${validation.status}*`,
     `• Vendor: ${invoice.vendor || 'Unknown'}`,
     `• PO: ${invoice.poNumber || 'Not found'}`,
     `• Total: ${invoice.currency || ''} ${Number(invoice.total || 0).toLocaleString('en-IN')}`,
@@ -31,13 +29,11 @@ async function notifySlack(invoice: any, validation: any) {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json; charset=utf-8',
     },
-    body: JSON.stringify({ channel, text: message }),
+    body: JSON.stringify({ channel: SLACK_CHANNEL_ID, text: message }),
   })
 
   const result = await response.json()
-  if (!response.ok || !result.ok) {
-    return { sent: false, configured: true, reason: result.error || `Slack returned HTTP ${response.status}` }
-  }
+  if (!response.ok || !result.ok) return { sent: false, configured: true, reason: result.error || `Slack returned HTTP ${response.status}` }
   return { sent: true, configured: true, ts: result.ts }
 }
 

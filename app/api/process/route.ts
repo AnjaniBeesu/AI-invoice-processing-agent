@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import pdf from 'pdf-parse'
-import { validateInvoice } from '@/lib/invoice'
+import { validateInvoice } from '../../../lib/invoice'
 
 export const runtime = 'nodejs'
 
